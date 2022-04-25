@@ -46,16 +46,20 @@
 
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
-#ifdef HAVE_EVPORT
-#include "ae_evport.c"
+ #ifdef HAVE_FF_KQUEUE
+#include "ae_ff_kqueue.c"
 #else
-    #ifdef HAVE_EPOLL
-    #include "ae_epoll.c"
+    #ifdef HAVE_EVPORT
+    #include "ae_evport.c"
     #else
-        #ifdef HAVE_KQUEUE
-        #include "ae_kqueue.c"
+        #ifdef HAVE_EPOLL
+        #include "ae_epoll.c"
         #else
-        #include "ae_select.c"
+            #ifdef HAVE_KQUEUE
+            #include "ae_kqueue.c"
+            #else
+            #include "ae_select.c"
+            #endif
         #endif
     #endif
 #endif
@@ -186,7 +190,11 @@ static void aeGetTime(long *seconds, long *milliseconds)
 {
     struct timeval tv;
 
+#ifdef HAVE_FF_KQUEUE
+        ff_gettimeofday(&tv, NULL);
+#else
     gettimeofday(&tv, NULL);
+#endif
     *seconds = tv.tv_sec;
     *milliseconds = tv.tv_usec/1000;
 }
@@ -494,12 +502,9 @@ int aeWait(int fd, int mask, long long milliseconds) {
 }
 
 void aeMain(aeEventLoop *eventLoop) {
-    eventLoop->stop = 0;
-    while (!eventLoop->stop) {
-        if (eventLoop->beforesleep != NULL)
-            eventLoop->beforesleep(eventLoop);
-        aeProcessEvents(eventLoop, AE_ALL_EVENTS|AE_CALL_AFTER_SLEEP);
-    }
+    if (eventLoop->beforesleep != NULL)
+        eventLoop->beforesleep(eventLoop);
+    aeProcessEvents(eventLoop, AE_ALL_EVENTS|AE_CALL_AFTER_SLEEP);
 }
 
 char *aeGetApiName(void) {

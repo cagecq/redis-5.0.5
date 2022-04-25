@@ -45,6 +45,7 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <sys/ioctl.h>
 
 #include "anet.h"
 
@@ -59,6 +60,13 @@ static void anetSetError(char *err, const char *fmt, ...)
 }
 
 int anetSetBlock(char *err, int fd, int non_block) {
+#ifdef HAVE_FF_KQUEUE
+        if (ioctl(fd, FIONBIO, &non_block) == -1) {
+            anetSetError(err, "ioctl FIONBIO : %s", strerror(errno));
+            return ANET_ERR;
+        }
+        return ANET_OK;
+#else
     int flags;
 
     /* Set the socket blocking (if non_block is zero) or non-blocking.
@@ -79,6 +87,7 @@ int anetSetBlock(char *err, int fd, int non_block) {
         return ANET_ERR;
     }
     return ANET_OK;
+#endif
 }
 
 int anetNonBlock(char *err, int fd) {

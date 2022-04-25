@@ -12,6 +12,15 @@
 # Dependencies are stored in the Makefile.dep file. To rebuild this file
 # Just use 'make dep', but this is only needed by developers.
 
+ifeq ($(FF_PATH),)
+    FF_PATH=/usr/local
+    $(warning FF_PATH environment variable not defined, default FF_PATH=/usr/local)
+endif
+
+ifneq ($(shell pkg-config --exists libdpdk && echo 0),0)
+$(error "no installation of DPDK found, maybe you shuld export environment variable `PKG_CONFIG_PATH`")
+endif
+
 release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 uname_M := $(shell sh -c 'uname -m 2>/dev/null || echo not')
@@ -20,7 +29,7 @@ DEPENDENCY_TARGETS=hiredis linenoise lua
 NODEPS:=clean distclean
 
 # Default settings
-STD=-std=c99 -pedantic -DREDIS_STATIC=''
+STD=-std=c99 -pedantic -DREDIS_STATIC='' -D_POSIX_C_SOURCE=199506L
 ifneq (,$(findstring clang,$(CC)))
 ifneq (,$(findstring FreeBSD,$(uname_S)))
   STD+=-Wno-c11-extensions
@@ -145,6 +154,15 @@ ifeq ($(MALLOC),jemalloc)
 	FINAL_LIBS := ../deps/jemalloc/lib/libjemalloc.a $(FINAL_LIBS)
 endif
 
+FINAL_CFLAGS+= -DHAVE_FF_KQUEUE
+FINAL_CFLAGS+= -I$(FF_PATH)/lib
+
+PKGCONF ?= pkg-config
+
+FINAL_LIBS+= $(shell $(PKGCONF) --static --libs libdpdk)
+FINAL_LIBS+= -L${FF_PATH}/lib -Wl,--whole-archive,-lfstack,--no-whole-archive
+FINAL_LIBS+= -Wl,--no-whole-archive -lrt -lm -ldl -lcrypto -lpthread -lnuma
+
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
 REDIS_LD=$(QUIET_LINK)$(CC) $(FINAL_LDFLAGS)
 REDIS_INSTALL=$(QUIET_INSTALL)$(INSTALL)
@@ -164,11 +182,11 @@ endif
 
 REDIS_SERVER_NAME=redis-server
 REDIS_SENTINEL_NAME=redis-sentinel
-REDIS_SERVER_OBJ=adlist.o quicklist.o ae.o anet.o dict.o server.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o crc16.o endianconv.o slowlog.o scripting.o bio.o rio.o rand.o memtest.o crc64.o bitops.o sentinel.o notify.o setproctitle.o blocked.o hyperloglog.o latency.o sparkline.o redis-check-rdb.o redis-check-aof.o geo.o lazyfree.o module.o evict.o expire.o geohash.o geohash_helper.o childinfo.o defrag.o siphash.o rax.o t_stream.o listpack.o localtime.o lolwut.o lolwut5.o
+REDIS_SERVER_OBJ=adlist.o quicklist.o ae.o anet.o anet_ff.o dict.o server.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o crc16.o endianconv.o slowlog.o scripting.o bio.o rio.o rand.o memtest.o crc64.o bitops.o sentinel.o notify.o setproctitle.o blocked.o hyperloglog.o latency.o sparkline.o redis-check-rdb.o redis-check-aof.o geo.o lazyfree.o module.o evict.o expire.o geohash.o geohash_helper.o childinfo.o defrag.o siphash.o rax.o t_stream.o listpack.o localtime.o lolwut.o lolwut5.o
 REDIS_CLI_NAME=redis-cli
-REDIS_CLI_OBJ=anet.o adlist.o dict.o redis-cli.o zmalloc.o release.o anet.o ae.o crc64.o siphash.o crc16.o
+REDIS_CLI_OBJ=anet.o adlist.o dict.o redis-cli.o zmalloc.o release.o anet.o anet_ff.o ae.o crc64.o siphash.o crc16.o
 REDIS_BENCHMARK_NAME=redis-benchmark
-REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o zmalloc.o redis-benchmark.o
+REDIS_BENCHMARK_OBJ=ae.o anet.o anet_ff.o redis-benchmark.o adlist.o zmalloc.o redis-benchmark.o
 REDIS_CHECK_RDB_NAME=redis-check-rdb
 REDIS_CHECK_AOF_NAME=redis-check-aof
 

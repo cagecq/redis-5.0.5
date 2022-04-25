@@ -660,7 +660,7 @@ int clientHasPendingReplies(client *c) {
     return c->bufpos || listLength(c->reply);
 }
 
-#define MAX_ACCEPTS_PER_CALL 1000
+#define MAX_ACCEPTS_PER_CALL 500
 static void acceptCommonHandler(int fd, int flags, char *ip) {
     client *c;
     if ((c = createClient(fd)) == NULL) {

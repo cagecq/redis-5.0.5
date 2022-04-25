@@ -34,6 +34,11 @@
 #include "latency.h"
 #include "atomicvar.h"
 
+#ifdef HAVE_FF_KQUEUE
+#include "ff_api.h"
+#include "anet_ff.h"
+#endif
+
 #include <time.h>
 #include <signal.h>
 #include <sys/wait.h>
@@ -2143,7 +2148,7 @@ void initServer(void) {
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
         acceptUnixHandler,NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
 
-
+#ifndef HAVE_FF_KQUEUE
     /* Register a readable event for the pipe used to awake the event loop
      * when a blocked client in a module needs attention. */
     if (aeCreateFileEvent(server.el, server.module_blocked_pipe[0], AE_READABLE,
@@ -2152,6 +2157,7 @@ void initServer(void) {
                 "Error registering the readable event for the module "
                 "blocked clients subsystem.");
     }
+#endif
 
     /* Open the AOF file if needed. */
     if (server.aof_state == AOF_ON) {
@@ -2753,6 +2759,36 @@ void closeListeningSockets(int unlink_unix_socket) {
         serverLog(LL_NOTICE,"Removing the unix socket file.");
         unlink(server.unixsocket); /* don't care if this fails */
     }
+}
+
+/* Reset cpu affinity as soon as new process fork().
+  * For new process will use same cpu core with redis server. */
+void resetCpuAffinity(const char* name)
+{
+    int j = 0, s = 0;
+    cpu_set_t cpuset_frm, cpuset_to;
+    pthread_t thread;
+#ifdef HAVE_FF_KQUEUE
+    thread = pthread_self();
+    CPU_ZERO(&cpuset_frm);
+    CPU_ZERO(&cpuset_to);
+
+    pthread_getaffinity_np(thread, sizeof(cpu_set_t), &cpuset_frm);
+    for (j = 0; j < CPU_SETSIZE; j++)
+    {
+        if ( CPU_ISSET(j, &cpuset_frm) )
+            continue;
+        CPU_SET(j, &cpuset_to);
+    }
+    s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset_to);
+    if (s != 0)
+        serverLog(LL_WARNING,"set cpu affinity, failed.");
+    if (name!=NULL)
+    {
+    	pthread_setname_np(thread, name);
+    }
+#endif
+    return;
 }
 
 int prepareForShutdown(int flags) {
@@ -4004,10 +4040,34 @@ int redisIsSupervised(int mode) {
     return 0;
 }
 
+static int loop(void *arg) {
+    aeMain((aeEventLoop *)arg);
+    return 0;
+}
 
 int main(int argc, char **argv) {
     struct timeval tv;
     int j;
+
+#ifdef HAVE_FF_KQUEUE
+    int rc = ff_init(argc, argv);
+    assert(0 == rc);
+    ff_mod_init();
+    int new_argc = argc - 4;
+    if (new_argc <= 0) {
+        new_argc = 1;
+    }
+
+    char **new_argv = zmalloc(sizeof(char *) * new_argc);
+    new_argv[0] = argv[0];
+    int i;
+    for (i = 1; i < new_argc; i++) {
+        new_argv[i] = argv[i + 4];
+    }
+    argv = new_argv;
+    argc = new_argc;
+#endif
+
 
 #ifdef REDIS_TEST
     if (argc == 3 && !strcasecmp(argv[1], "test")) {
@@ -4197,8 +4257,11 @@ int main(int argc, char **argv) {
 
     aeSetBeforeSleepProc(server.el,beforeSleep);
     aeSetAfterSleepProc(server.el,afterSleep);
-    aeMain(server.el);
+    ff_run(loop, server.el);
     aeDeleteEventLoop(server.el);
+#ifdef HAVE_FF_KQUEUE
+    zfree(new_argv);
+#endif
     return 0;
 }
 
